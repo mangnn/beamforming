@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Three.js Simulation</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@100..900&display=swap" rel="stylesheet">
+  <style>
+    body { margin: 0; font-family: 'Noto Sans KR', sans-serif; }
+    canvas { display: block; }
+    .info-box {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 100;
+      color: white;
+      font-size: 16px;
+      background: rgba(0, 0, 128, 0.8);
+      padding: 12px;
+      border-radius: 12px;
+      width: 300px;
+    }
+    .info-box .info-row { margin-bottom: 8px; }
+    .info-box label { display: inline-block; min-width: 120px; }
+    .info-box input, .info-box select, .info-box button {
+      font-size: 14px;
+      padding: 2px 6px;
+      margin-left: 4px;
+    }
+    .info-box input { width: 120px; }
+    .info-box button {
+      margin-right: 6px;
+      margin-top: 4px;
+      min-width: 60px;
+    }
+
+    .weight-box {
+      position: absolute;
+      top: 280px;
+      left: 10px;
+      z-index: 100;
+      color: rgb(255, 255, 255);
+      font-size: 14px;
+      background: rgba(0, 0, 128, 0.8);
+      padding: 12px;
+      border-radius: 12px;
+      width: 300px;
+    }
+
+    .weight-box .weight-row {
+      margin-bottom: 5px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .weight-box input {
+      width: 30px;
+      text-align: center;
+      font-size: 14px;
+    }
+
+    #intensity-grid, #max-intensity-grid {
+      position: absolute;
+      width: 320px;
+      height: 320px;
+      display: grid;
+      grid-template-columns: repeat(16, 1fr);
+      grid-template-rows: repeat(16, 1fr);
+      gap: 1px;
+      border: 2px solid #333;
+      z-index: 90;
+      background: rgba(255, 255, 255, 0.8);
+    }
+    
+    #intensity-grid { top: 45px; right: 10px; }
+    #max-intensity-grid { top: 415px; right: 10px; }
+
+    .intensity-cell, .max-intensity-cell {
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0);
+      transition: background-color 0.1s ease;
+    }
+
+    #intensity-label, #max-intensity-label {
+      position: absolute;
+      font-size: 16px;
+      font-weight: bold;
+      color: black;
+      background: rgba(255,255,255,0.8);
+      padding: 4px 10px;
+      z-index: 91;
+      border-radius: 5px;
+      width: 300px;
+    }
+
+    #intensity-label {
+      top: 10px; /* 그리드 위에 배치 */
+      right: 13px;
+    }
+
+    #max-intensity-label {
+      top: 380px; /* 아래쪽 그리드 위에 배치 */
+      right: 13px;
+    }
+  </style>
+</head>
+<body>
+
+<div id="intensity-label">Intensity</div>
+<div id="intensity-grid"></div>
+<div id="max-intensity-label">Max-Intensity</div>
+<div id="max-intensity-grid"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.136.0/examples/js/controls/OrbitControls.js"></script>
+
+<script>
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0066ff);
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(0, 0, 100);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// UI Box
+const infoBox = document.createElement('div');
+infoBox.className = 'info-box';
+document.body.appendChild(infoBox);
+
+let frequency = 2000;
+let period = 1 / frequency;
+let delayTime = 100 / 1e6;
+let direction = 'right';
+let elapsedTime = 0;
+let elapsedStarted = false;
+
+const elapsedTimeDisplay = document.createElement('div');
+elapsedTimeDisplay.className = 'info-row';
+elapsedTimeDisplay.textContent = 'Time : 0.000 ms';
+infoBox.appendChild(elapsedTimeDisplay);
+
+function makeRow(labelText, inputElement, suffixText = '') {
+  const row = document.createElement('div');
+  row.className = 'info-row';
+  const label = document.createElement('label');
+  label.textContent = labelText;
+  row.appendChild(label);
+  row.appendChild(inputElement);
+  if (suffixText) row.appendChild(document.createTextNode(' ' + suffixText));
+  infoBox.appendChild(row);
+}
+
+const freqInput = document.createElement('input');
+freqInput.type = 'number'; freqInput.value = frequency; freqInput.step = 100;
+freqInput.addEventListener('change', () => { frequency = parseFloat(freqInput.value); period = 1 / frequency; });
+makeRow('Frequency:', freqInput, 'Hz');
+
+const delayInput = document.createElement('input');
+delayInput.type = 'number'; delayInput.value = 100;
+delayInput.addEventListener('change', () => { delayTime = parseFloat(delayInput.value) / 1e6; });
+makeRow('Delay:', delayInput, 'μs');
+
+const dInput = document.createElement('input');
+dInput.type = 'number'; dInput.value = 5;
+makeRow('Speaker Gap:', dInput, 'cm');
+
+const dirSelect = document.createElement('select');
+dirSelect.innerHTML = `<option value="right">Right (1→8)</option><option value="left">Left (8→1)</option>`;
+dirSelect.addEventListener('change', () => direction = dirSelect.value);
+makeRow('Direction:', dirSelect);
+
+const slowInput = document.createElement('input');
+slowInput.type = 'number'; slowInput.value = 0.0005; slowInput.step = 0.0001;
+makeRow('Slow Factor:', slowInput, '배속');
+
+const btnRow = document.createElement('div');
+btnRow.className = 'info-row'; btnRow.style.display = 'flex'; btnRow.style.flexWrap = 'wrap';
+['Start', 'Stop', 'Reset', 'Default'].forEach(text => {
+  const btn = document.createElement('button'); btn.textContent = text;
+  btnRow.appendChild(btn);
+  if (text === 'Start') btn.onclick = () => simulationRunning = true;
+  else if (text === 'Stop') btn.onclick = () => simulationRunning = false;
+  else if (text === 'Reset') btn.onclick = () => resetSim();
+  else if (text === 'Default') btn.onclick = () => {
+  freqInput.value = 2000; frequency = 2000; period = 1/frequency;
+  delayInput.value = 100; delayTime = 100 / 1e6; slowInput.value = 0.0005; dInput.value = 5;
+  dirSelect.value = 'right'; direction = 'right';
+  // 가중치 초기화
+  for (let i = 0; i < 8; i++) {
+    speakerWeights[i] = 10;
+    weightInputs[i].value = 10;
+  }
+  resetSim();
+}
+
+});
+infoBox.appendChild(btnRow);
+
+// Weight Box 생성
+const weightBox = document.createElement('div');
+weightBox.className = 'weight-box';
+document.body.appendChild(weightBox);
+
+// 타이틀
+const weightTitle = document.createElement('div');
+weightTitle.style.fontWeight = 'bold';
+weightTitle.style.marginBottom = '6px';
+weightTitle.textContent = 'Speaker Weights';
+weightBox.appendChild(weightTitle);
+
+// 스피커 번호 라벨 행
+const labelRow = document.createElement('div');
+labelRow.className = 'weight-row';
+for (let i = 0; i < 8; i++) {
+  const span = document.createElement('span');
+  span.textContent = (i + 1);
+  span.style.width = '30px';
+  span.style.textAlign = 'center';
+  labelRow.appendChild(span);
+}
+weightBox.appendChild(labelRow);
+
+// 입력창 행
+const inputRow = document.createElement('div');
+inputRow.className = 'weight-row';
+const speakerWeights = Array(8).fill(1);
+const weightInputs = [];
+
+for (let i = 0; i < 8; i++) {
+  const idx = i;  // 👈 이 줄이 중요!
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.min = 1;
+  input.max = 10;
+  input.value = 10;
+  speakerWeights[idx] = 10;
+  input.addEventListener('change', () => {
+    speakerWeights[idx] = parseFloat(input.value);
+  });
+  inputRow.appendChild(input);
+  weightInputs.push(input);
+}
+weightBox.appendChild(inputRow);
+
+// Scene elements
+const floor = new THREE.Mesh(new THREE.BoxGeometry(600, 150, 1), new THREE.MeshBasicMaterial({ color: 0x0066ff }));
+floor.position.set(0, -147, 0);
+scene.add(floor);
+
+// Grid setup
+const intensityGrid = document.getElementById('intensity-grid');
+const maxIntensityGrid = document.getElementById('max-intensity-grid');
+let intensityCells = [], maxIntensityCells = [], maxGridScores = new Array(256).fill(0);
+
+for (let i = 0; i < 256; i++) {
+  const cell = document.createElement('div');
+  cell.className = 'intensity-cell';
+  intensityGrid.appendChild(cell);
+  intensityCells.push(cell);
+  const maxCell = document.createElement('div');
+  maxCell.className = 'max-intensity-cell';
+  maxIntensityGrid.appendChild(maxCell);
+  maxIntensityCells.push(maxCell);
+}
+
+// Speaker & Ring system
+let Speakers = [], simulationRunning = false, internalClock = new THREE.Clock(), activationIndex = 0, activationTimer = 0;
+
+function initSpeakers() {
+  Speakers.forEach(s => { scene.remove(s.mesh); s.rings.forEach(r => scene.remove(r.mesh)); });
+  Speakers = [];
+  const d = parseFloat(dInput.value);
+  const positions = [-d/2-3*d, -d/2-2*d, -d/2-d, -d/2, d/2, d/2+d, d/2+2*d, d/2+3*d];
+  for (let i = 0; i < 8; i++) {
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(1.5,1.5,2,32), new THREE.MeshBasicMaterial({color:0xdddddd}));
+    mesh.position.set(positions[i], -71, 0);
+    scene.add(mesh);
+    Speakers.push({ mesh, isActive: false, timer: 0, rings: [] });
+  }
+}
+initSpeakers();
+
+function resetSim() {
+  simulationRunning = false;
+  elapsedStarted = false;
+  elapsedTime = 0;
+  activationIndex = 0;
+  activationTimer = 0;
+  internalClock = new THREE.Clock();
+  elapsedTimeDisplay.textContent = 'Time : 0.000 ms';
+  maxGridScores = new Array(256).fill(0);
+  initSpeakers();
+}
+
+function createRing(pos) {
+  const geo = new THREE.RingGeometry(0, 0.1, 128);
+  const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(pos.x, -70, pos.z);
+  return { mesh, currentRadius: 0 };
+}
+
+function updateIntensityGrid() {
+  const gridScores = new Array(256).fill(0);
+  for (let sIdx = 0; sIdx < Speakers.length; sIdx++) {
+    const s = Speakers[sIdx];
+    const weight = speakerWeights[sIdx];
+    for (let r of s.rings) {
+      const radius = r.currentRadius;
+      const origin = s.mesh.position;
+      for (let y = 0; y < 16; y++) {
+        for (let x = 0; x < 16; x++) {
+          const idx = (15 - y) * 16 + x;
+          const px = -50 + x * 6.25 + 3.125;
+          const py = -70 + y * 6.25 + 3.125;
+          const dist = origin.distanceTo(new THREE.Vector3(px, py, 0));
+          if (Math.abs(dist - radius) < 1.0) gridScores[idx] += weight;
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i < 256; i++) {
+    const norm = Math.min(gridScores[i] / (8 * 10), 1);  // 최대 80 기준
+    const colorVal = Math.floor(norm * 255);
+    intensityCells[i].style.backgroundColor = `rgb(255, ${255 - colorVal}, ${255 - colorVal})`;
+    if (gridScores[i] > maxGridScores[i]) maxGridScores[i] = gridScores[i];
+  }
+
+  for (let i = 0; i < 256; i++) {
+    const norm = Math.min(maxGridScores[i] / (8 * 10), 1);  // 최대 80 기준
+    const colorVal = Math.floor(norm * 255);
+    maxIntensityCells[i].style.backgroundColor = `rgb(255, ${255 - colorVal}, ${255 - colorVal})`;
+  }
+}
+
+// Animate loop
+function animate() {
+  requestAnimationFrame(animate);
+  const delta = internalClock.getDelta() * parseFloat(slowInput.value);
+  if (simulationRunning) {
+    if (activationIndex < Speakers.length) {
+      activationTimer += delta;
+      if (activationTimer >= delayTime) {
+        const idx = direction === 'right' ? activationIndex : 7 - activationIndex;
+        const s = Speakers[idx];
+        s.isActive = true;
+        const r = createRing(s.mesh.position);
+        s.rings.push(r);
+        scene.add(r.mesh);
+        if (!elapsedStarted) { elapsedTime = 0; elapsedStarted = true; }
+        s.timer = 0;
+        activationIndex++; activationTimer = 0;
+      }
+    }
+    if (elapsedStarted) {
+      elapsedTime += delta;
+      elapsedTimeDisplay.textContent = `Time : ${(elapsedTime * 1000).toFixed(3)} ms`;
+    }
+    for (let s of Speakers) {
+      if (!s.isActive) continue;
+      s.timer += delta;
+      if (s.timer >= period) {
+        const r = createRing(s.mesh.position);
+        s.rings.push(r); scene.add(r.mesh);
+        s.timer = 0;
+      }
+      for (let i = s.rings.length - 1; i >= 0; i--) {
+        const r = s.rings[i];
+        r.currentRadius += 34300 * delta;
+        r.mesh.geometry.dispose();
+        r.mesh.geometry = new THREE.RingGeometry(r.currentRadius, r.currentRadius + 0.1, 128);
+        if (r.currentRadius > 150) {
+          scene.remove(r.mesh); s.rings.splice(i, 1);
+        }
+      }
+    }
+  }
+  updateIntensityGrid();
+  controls.update(); renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>
